@@ -7,6 +7,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Usuario del sistema (operador / administrador)
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         String    @default("OPERADOR") // OPERADOR | ADMIN
+  createdAt    DateTime  @default(now())
+  sessions     Session[]
+}
+
+// Sesión iniciada (cookie httpOnly con token)
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
 // Chófer de la flota
 model Driver {
   id        String    @id @default(cuid())

@@ -1,10 +1,23 @@
 /**
- * Seed RUSHTAXI: 20 móviles con sus choferes + viajes de ejemplo.
+ * Seed RUSHTAXI: usuario del sistema + 20 móviles con sus choferes + viajes de ejemplo.
  * Ejecutar con: bun prisma/seed.ts
  */
 import { PrismaClient } from '@prisma/client'
+import { randomBytes, scryptSync } from 'crypto'
 
 const db = new PrismaClient()
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString('hex')
+  const hash = scryptSync(password, salt, 64).toString('hex')
+  return `${salt}:${hash}`
+}
+
+// Usuarios del sistema (operadores)
+const usersData = [
+  { email: 'gonzalo@demo.com', password: 'gonzalo123', name: 'Gonzalo', role: 'OPERADOR' },
+  { email: 'operadora@demo.com', password: 'rush2024', name: 'Operadora Central', role: 'OPERADOR' },
+]
 
 const driversData = [
   { name: 'Carlos Giménez', phone: '+54 9 11 4021-3387', license: 'D1-45218' },
@@ -57,6 +70,17 @@ function iso(hoursAgo: number): Date {
 }
 
 async function main() {
+  console.log('Creando usuarios del sistema...')
+  for (const u of usersData) {
+    await db.user.upsert({
+      where: { email: u.email },
+      update: { passwordHash: hashPassword(u.password), name: u.name, role: u.role },
+      create: { email: u.email, passwordHash: hashPassword(u.password), name: u.name, role: u.role },
+    })
+    // limpiar sesiones viejas del usuario (la contraseña pudo cambiar)
+    await db.session.deleteMany({ where: { user: { email: u.email } } })
+  }
+
   console.log('Limpiando tablas...')
   await db.payment.deleteMany()
   await db.trip.deleteMany()

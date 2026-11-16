@@ -1,0 +1,788 @@
+     1→// Consola del operador: cargar pedidos, grilla de móviles y asignación con F8
+     2→'use client'
+     3→
+     4→import { useEffect, useMemo, useRef, useState } from 'react'
+     5→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+     6→import {
+     7→  BellRing,
+     8→  CalendarClock,
+     9→  CarTaxiFront,
+    10→  ClipboardList,
+    11→  Loader2,
+    12→  MapPin,
+    13→  Plus,
+    14→  User,
+    15→  X,
+    16→} from 'lucide-react'
+    17→import { toast } from 'sonner'
+    18→import { Button } from '@/components/ui/button'
+    19→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+    20→import { Badge } from '@/components/ui/badge'
+    21→import { Checkbox } from '@/components/ui/checkbox'
+    22→import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+    23→import { Input } from '@/components/ui/input'
+    24→import { Label } from '@/components/ui/label'
+    25→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    26→import { Textarea } from '@/components/ui/textarea'
+    27→import { cn } from '@/lib/utils'
+    28→import { formatARSPlain, formatTime } from '@/lib/format'
+    29→import { useFleetStore } from '@/lib/store'
+    30→import { fleetAlarm } from '@/lib/alarm'
+    31→import type { TripDTO, VehicleDTO } from '@/lib/types'
+    32→
+    33→const ZONES = [
+    34→  'Centro', 'Once', 'Constitución', 'Retiro', 'San Telmo', 'Monserrat', 'Recoleta',
+    35→  'Palermo', 'Almagro', 'Balvanera', 'Villa Crespo', 'Caballito', 'Boedo',
+    36→  'San Cristóbal', 'Flores', 'Belgrano', 'Barracas', 'Puerto Madero',
+    37→]
+    38→
+    39→type VehiclesResponse = { vehicles: VehicleDTO[] }
+    40→type TripsResponse = { trips: TripDTO[] }
+    41→type TripResponse = { trip: TripDTO }
+    42→
+    43→// ---------- Formulario de carga de pedido ----------
+    44→
+    45→function TripForm() {
+    46→  const queryClient = useQueryClient()
+    47→  const [address, setAddress] = useState('')
+    48→  const [passengerName, setPassengerName] = useState('')
+    49→  const [passengerPhone, setPassengerPhone] = useState('')
+    50→  const [zone, setZone] = useState<string>('none')
+    51→  const [fare, setFare] = useState('')
+    52→  const [schedule, setSchedule] = useState(false)
+    53→  const [scheduledAt, setScheduledAt] = useState('')
+    54→  const [notes, setNotes] = useState('')
+    55→
+    56→  const createMut = useMutation({
+    57→    mutationFn: async () => {
+    58→      const res = await fetch('/api/trips', {
+    59→        method: 'POST',
+    60→        headers: { 'content-type': 'application/json' },
+    61→        body: JSON.stringify({
+    62→          address,
+    63→          passengerName,
+    64→          passengerPhone: passengerPhone || null,
+    65→          zone: zone !== 'none' ? zone : null,
+    66→          fare: fare ? Number(fare) : 0,
+    67→          scheduledAt: schedule && scheduledAt ? new Date(scheduledAt).toISOString() : null,
+    68→          notes: notes || null,
+    69→        }),
+    70→      })
+    71→      const data = await res.json()
+    72→      if (!res.ok) throw new Error(data.error ?? 'No se pudo cargar el pedido')
+    73→      return data as TripResponse
+    74→    },
+    75→    onSuccess: (data) => {
+    76→      toast.success(`Pedido #${data.trip.code} cargado`, { description: data.trip.address })
+    77→      setAddress('')
+    78→      setPassengerName('')
+    79→      setPassengerPhone('')
+    80→      setFare('')
+    81→      setNotes('')
+    82→      setSchedule(false)
+    83→      setScheduledAt('')
+    84→      void queryClient.invalidateQueries({ queryKey: ['trips'] })
+    85→    },
+    86→    onError: (err: Error) => toast.error(err.message),
+    87→  })
+    88→
+    89→  return (
+    90→    <Card>
+    91→      <CardHeader className="pb-3">
+    92→        <CardTitle className="flex items-center gap-2 text-base">
+    93→          <Plus className="h-4 w-4 text-amber-500" aria-hidden />
+    94→          Nuevo pedido
+    95→        </CardTitle>
+    96→        <CardDescription>Cargá la dirección y asigná el móvil</CardDescription>
+    97→      </CardHeader>
+    98→      <CardContent className="space-y-3">
+    99→        <div className="space-y-1.5">
+   100→          <Label htmlFor="trip-address">Dirección *</Label>
+   101→          <Input
+   102→            id="trip-address"
+   103→            placeholder="Calle, altura, localidad"
+   104→            value={address}
+   105→            onChange={(e) => setAddress(e.target.value)}
+   106→          />
+   107→        </div>
+   108→        <div className="grid grid-cols-2 gap-3">
+   109→          <div className="space-y-1.5">
+   110→            <Label htmlFor="trip-passenger">Pasajero *</Label>
+   111→            <Input
+   112→              id="trip-passenger"
+   113→              placeholder="Nombre y apellido"
+   114→              value={passengerName}
+   115→              onChange={(e) => setPassengerName(e.target.value)}
+   116→            />
+   117→          </div>
+   118→          <div className="space-y-1.5">
+   119→            <Label htmlFor="trip-phone">Teléfono</Label>
+   120→            <Input
+   121→              id="trip-phone"
+   122→              placeholder="11..."
+   123→              value={passengerPhone}
+   124→              onChange={(e) => setPassengerPhone(e.target.value)}
+   125→            />
+   126→          </div>
+   127→        </div>
+   128→        <div className="grid grid-cols-2 gap-3">
+   129→          <div className="space-y-1.5">
+   130→            <Label>Zona</Label>
+   131→            <Select value={zone} onValueChange={setZone}>
+   132→              <SelectTrigger aria-label="Zona del pedido">
+   133→                <SelectValue placeholder="Seleccionar" />
+   134→              </SelectTrigger>
+   135→              <SelectContent className="max-h-64">
+   136→                <SelectItem value="none">Sin zona</SelectItem>
+   137→                {ZONES.map((z) => (
+   138→                  <SelectItem key={z} value={z}>{z}</SelectItem>
+   139→                ))}
+   140→              </SelectContent>
+   141→            </Select>
+   142→          </div>
+   143→          <div className="space-y-1.5">
+   144→            <Label htmlFor="trip-fare">Tarifa estimada ($)</Label>
+   145→            <Input
+   146→              id="trip-fare"
+   147→              type="number"
+   148→              min={0}
+   149→              step={100}
+   150→              placeholder="0"
+   151→              value={fare}
+   152→              onChange={(e) => setFare(e.target.value)}
+   153→            />
+   154→          </div>
+   155→        </div>
+   156→        <div className="space-y-1.5">
+   157→          <Label htmlFor="trip-notes">Notas para el chófer</Label>
+   158→          <Textarea
+   159→            id="trip-notes"
+   160→            rows={2}
+   161→            placeholder="Ej: pasajero con valija, puerta marrón..."
+   162→            value={notes}
+   163→            onChange={(e) => setNotes(e.target.value)}
+   164→          />
+   165→        </div>
+   166→        <div className="rounded-lg border border-dashed border-zinc-300 p-3 space-y-2">
+   167→          <label className="flex items-center gap-2 text-sm font-medium" htmlFor="trip-schedule">
+   168→            <Checkbox
+   169→              id="trip-schedule"
+   170→              checked={schedule}
+   171→              onCheckedChange={(v) => setSchedule(v === true)}
+   172→            />
+   173→            <CalendarClock className="h-4 w-4 text-amber-500" aria-hidden />
+   174→            Programar para más tarde
+   175→          </label>
+   176→          {schedule && (
+   177→            <Input
+   178→              aria-label="Fecha y hora programada"
+   179→              type="datetime-local"
+   180→              value={scheduledAt}
+   181→              onChange={(e) => setScheduledAt(e.target.value)}
+   182→            />
+   183→          )}
+   184→        </div>
+   185→        <Button
+   186→          className="w-full bg-amber-400 font-bold text-zinc-950 hover:bg-amber-300"
+   187→          disabled={createMut.isPending || !address.trim() || !passengerName.trim() || (schedule && !scheduledAt)}
+   188→          onClick={() => createMut.mutate()}
+   189→        >
+   190→          {createMut.isPending ? (
+   191→            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   192→          ) : (
+   193→            'CARGAR PEDIDO'
+   194→          )}
+   195→        </Button>
+   196→      </CardContent>
+   197→    </Card>
+   198→  )
+   199→}
+   200→
+   201→// ---------- Lista de pedidos pendientes ----------
+   202→
+   203→function isDue(t: TripDTO, now: number): boolean {
+   204→  return !!t.scheduledAt && new Date(t.scheduledAt).getTime() <= now
+   205→}
+   206→
+   207→function PendingTrips({
+   208→  trips,
+   209→  selectedTripId,
+   210→  onSelect,
+   211→  onAssign,
+   212→  onCancel,
+   213→  cancelingId,
+   214→}: {
+   215→  trips: TripDTO[]
+   216→  selectedTripId: string | null
+   217→  onSelect: (id: string) => void
+   218→  onAssign: (tripId: string) => void
+   219→  onCancel: (trip: TripDTO) => void
+   220→  cancelingId: string | null
+   221→}) {
+   222→  const now = Date.now()
+   223→  return (
+   224→    <Card>
+   225→      <CardHeader className="pb-3">
+   226→        <CardTitle className="flex items-center justify-between text-base">
+   227→          <span className="flex items-center gap-2">
+   228→            <ClipboardList className="h-4 w-4 text-amber-500" aria-hidden />
+   229→            Pedidos pendientes
+   230→          </span>
+   231→          <Badge variant={trips.length > 0 ? 'default' : 'outline'} className={trips.length > 0 ? 'bg-amber-400 text-zinc-950' : ''}>
+   232→            {trips.length}
+   233→          </Badge>
+   234→        </CardTitle>
+   235→        <CardDescription>Seleccioná un pedido y asignalo con F8 o tocando un móvil</CardDescription>
+   236→      </CardHeader>
+   237→      <CardContent className="max-h-[420px] space-y-2 overflow-y-auto pr-2">
+   238→        {trips.length === 0 && (
+   239→          <p className="py-8 text-center text-sm text-zinc-500">No hay pedidos pendientes</p>
+   240→        )}
+   241→        {trips.map((t) => {
+   242→          const due = isDue(t, now)
+   243→          const selected = selectedTripId === t.id
+   244→          return (
+   245→            <button
+   246→              key={t.id}
+   247→              onClick={() => onSelect(t.id)}
+   248→              aria-pressed={selected}
+   249→              className={cn(
+   250→                'w-full rounded-lg border p-3 text-left transition-colors',
+   251→                due && 'border-red-400 bg-red-50',
+   252→                selected && !due && 'border-amber-400 bg-amber-50',
+   253→                !selected && !due && 'border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50'
+   254→              )}
+   255→            >
+   256→              <div className="flex items-center justify-between gap-2">
+   257→                <span className="flex items-center gap-2 text-sm font-bold text-zinc-900">
+   258→                  #{t.code}
+   259→                  {t.scheduledAt && (
+   260→                    <Badge variant="outline" className={cn('gap-1 text-[10px]', due ? 'animate-pulse border-red-400 text-red-700' : 'border-amber-400 text-amber-700')}>
+   261→                      <CalendarClock className="h-3 w-3" aria-hidden />
+   262→                      {due ? '¡LLEGÓ LA HORA!' : `Programado ${formatTime(t.scheduledAt)}`}
+   263→                    </Badge>
+   264→                  )}
+   265→                </span>
+   266→                {t.fare > 0 && <span className="text-sm font-semibold text-amber-600">{formatARSPlain(t.fare)}</span>}
+   267→              </div>
+   268→              <p className="mt-1 flex items-start gap-1.5 text-sm font-medium text-zinc-800">
+   269→                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400" aria-hidden />
+   270→                {t.address}
+   271→              </p>
+   272→              <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
+   273→                <span className="flex items-center gap-1">
+   274→                  <User className="h-3 w-3" aria-hidden />
+   275→                  {t.passengerName}
+   276→                  {t.zone && <Badge variant="outline" className="ml-1 border-zinc-300 text-[10px] text-zinc-600">{t.zone}</Badge>}
+   277→                </span>
+   278→                <span className="flex gap-1.5">
+   279→                  <span
+   280→                    role="button"
+   281→                    tabIndex={0}
+   282→                    onClick={(e) => {
+   283→                      e.stopPropagation()
+   284→                      onAssign(t.id)
+   285→                    }}
+   286→                    onKeyDown={(e) => {
+   287→                      if (e.key === 'Enter' || e.key === ' ') {
+   288→                        e.preventDefault()
+   289→                        e.stopPropagation()
+   290→                        onAssign(t.id)
+   291→                      }
+   292→                    }}
+   293→                    className="rounded bg-zinc-900 px-2 py-1 text-[11px] font-bold text-amber-400 hover:bg-zinc-800"
+   294→                  >
+   295→                    ASIGNAR (F8)
+   296→                  </span>
+   297→                  <span
+   298→                    role="button"
+   299→                    tabIndex={0}
+   300→                    onClick={(e) => {
+   301→                      e.stopPropagation()
+   302→                      onCancel(t)
+   303→                    }}
+   304→                    onKeyDown={(e) => {
+   305→                      if (e.key === 'Enter' || e.key === ' ') {
+   306→                        e.preventDefault()
+   307→                        e.stopPropagation()
+   308→                        onCancel(t)
+   309→                      }
+   310→                    }}
+   311→                    aria-disabled={cancelingId === t.id}
+   312→                    className="rounded border border-zinc-300 px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+   313→                  >
+   314→                    {cancelingId === t.id ? 'Cancelando...' : 'Cancelar'}
+   315→                  </span>
+   316→                </span>
+   317→              </div>
+   318→            </button>
+   319→          )
+   320→        })}
+   321→      </CardContent>
+   322→    </Card>
+   323→  )
+   324→}
+   325→
+   326→// ---------- Grilla de móviles ----------
+   327→
+   328→type VehicleState = 'busy' | 'free' | 'offline' | 'no-driver'
+   329→
+   330→function vehicleState(v: VehicleDTO, positions: Record<number, { online: boolean; busy: boolean }>): VehicleState {
+   331→  if (!v.driver || !v.driver.active) return 'no-driver'
+   332→  const pos = positions[v.number]
+   333→  if (!pos || !pos.online) return 'offline'
+   334→  if (v.currentTrip || pos.busy) return 'busy'
+   335→  return 'free'
+   336→}
+   337→
+   338→const STATE_STYLES: Record<VehicleState, { tile: string; badge: string; label: string }> = {
+   339→  busy: {
+   340→    tile: 'border-amber-400 bg-amber-50 hover:bg-amber-100',
+   341→    badge: 'bg-amber-400 text-zinc-950',
+   342→    label: 'OCUPADO',
+   343→  },
+   344→  free: {
+   345→    tile: 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100',
+   346→    badge: 'bg-emerald-500 text-white',
+   347→    label: 'LIBRE',
+   348→  },
+   349→  offline: {
+   350→    tile: 'border-zinc-200 bg-zinc-100 hover:bg-zinc-200/70',
+   351→    badge: 'bg-zinc-400 text-white',
+   352→    label: 'DESCONECTADO',
+   353→  },
+   354→  'no-driver': {
+   355→    tile: 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100 opacity-70',
+   356→    badge: 'bg-zinc-300 text-zinc-600',
+   357→    label: 'SIN CHOFER',
+   358→  },
+   359→}
+   360→
+   361→function VehicleGrid({
+   362→  vehicles,
+   363→  selectedTripId,
+   364→  onTileClick,
+   365→}: {
+   366→  vehicles: VehicleDTO[]
+   367→  selectedTripId: string | null
+   368→  onTileClick: (vehicleNumber: number, state: VehicleState) => void
+   369→}) {
+   370→  const positions = useFleetStore((s) => s.positions)
+   371→  return (
+   372→    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+   373→      {vehicles.map((v) => {
+   374→        const state = vehicleState(v, positions)
+   375→        const style = STATE_STYLES[state]
+   376→        const pos = positions[v.number]
+   377→        return (
+   378→          <button
+   379→            key={v.id}
+   380→            onClick={() => onTileClick(v.number, state)}
+   381→            aria-label={`Móvil ${v.number}, ${style.label.toLowerCase()}${v.driver ? `, chofer ${v.driver.name}` : ', sin chofer'}`}
+   382→            className={cn(
+   383→              'relative flex flex-col items-start rounded-lg border p-2.5 text-left transition-all active:scale-[0.98]',
+   384→              style.tile,
+   385→              selectedTripId && (state === 'free' || state === 'busy') && 'cursor-pointer ring-2 ring-amber-400/60'
+   386→            )}
+   387→          >
+   388→            <div className="flex w-full items-center justify-between">
+   389→              <span className="text-2xl font-black leading-none text-zinc-900">{v.number}</span>
+   390→              <span className={cn('rounded px-1.5 py-0.5 text-[9px] font-black tracking-wide', style.badge)}>
+   391→                {style.label}
+   392→              </span>
+   393→            </div>
+   394→            <p className="mt-1.5 truncate text-xs font-semibold text-zinc-700">
+   395→              {v.driver ? v.driver.name : 'Sin chofer'}
+   396→            </p>
+   397→            <p className="truncate text-[10px] text-zinc-500">
+   398→              {v.model} · {v.plate}
+   399→            </p>
+   400→            {v.currentTrip && (
+   401→              <p className="mt-1 line-clamp-2 w-full rounded bg-amber-400/20 px-1.5 py-1 text-[10px] font-medium text-amber-900">
+   402→                #{v.currentTrip.code}: {v.currentTrip.address}
+   403→              </p>
+   404→            )}
+   405→            {state !== 'offline' && state !== 'no-driver' && pos && (
+   406→              <span className="absolute right-2 bottom-2 flex h-2 w-2">
+   407→                <span className={cn('absolute inline-flex h-full w-full animate-ping rounded-full opacity-60', state === 'busy' ? 'bg-amber-500' : 'bg-emerald-500')} />
+   408→                <span className={cn('relative inline-flex h-2 w-2 rounded-full', state === 'busy' ? 'bg-amber-500' : 'bg-emerald-500')} />
+   409→              </span>
+   410→            )}
+   411→          </button>
+   412→        )
+   413→      })}
+   414→    </div>
+   415→  )
+   416→}
+   417→
+   418→// ---------- Diálogo de asignación ----------
+   419→
+   420→function AssignDialog({
+   421→  open,
+   422→  onOpenChange,
+   423→  pendingTrips,
+   424→  vehicles,
+   425→  initialTripId,
+   426→  onAssign,
+   427→  assigning,
+   428→}: {
+   429→  open: boolean
+   430→  onOpenChange: (v: boolean) => void
+   431→  pendingTrips: TripDTO[]
+   432→  vehicles: VehicleDTO[]
+   433→  initialTripId: string | null
+   434→  onAssign: (tripId: string, vehicleNumber: number) => void
+   435→  assigning: boolean
+   436→}) {
+   437→  const positions = useFleetStore((s) => s.positions)
+   438→  const [tripId, setTripId] = useState<string | null>(initialTripId)
+   439→  const [vehicleNumber, setVehicleNumber] = useState<number | null>(null)
+   440→  const [prevOpen, setPrevOpen] = useState(open)
+   441→
+   442→  // reiniciar la selección cada vez que se abre el diálogo (patrón de ajuste en render)
+   443→  if (open !== prevOpen) {
+   444→    setPrevOpen(open)
+   445→    setTripId(initialTripId ?? pendingTrips[0]?.id ?? null)
+   446→    setVehicleNumber(null)
+   447→  }
+   448→
+   449→  const trip = pendingTrips.find((t) => t.id === tripId) ?? null
+   450→
+   451→  return (
+   452→    <Dialog open={open} onOpenChange={onOpenChange}>
+   453→      <DialogContent className="max-w-2xl">
+   454→        <DialogHeader>
+   455→          <DialogTitle className="flex items-center gap-2">
+   456→            <CarTaxiFront className="h-5 w-5 text-amber-500" aria-hidden />
+   457→            Asignar pedido a un móvil
+   458→          </DialogTitle>
+   459→          <DialogDescription>
+   460→            Elegí el pedido y tocá el número de móvil. Atajos: F8 abre esta ventana.
+   461→          </DialogDescription>
+   462→        </DialogHeader>
+   463→
+   464→        <div className="max-h-[180px] space-y-2 overflow-y-auto rounded-lg border p-2">
+   465→          {pendingTrips.length === 0 && (
+   466→            <p className="py-4 text-center text-sm text-zinc-500">No hay pedidos pendientes</p>
+   467→          )}
+   468→          {pendingTrips.map((t) => (
+   469→            <button
+   470→              key={t.id}
+   471→              onClick={() => setTripId(t.id)}
+   472→              aria-pressed={tripId === t.id}
+   473→              className={cn(
+   474→                'flex w-full items-center justify-between gap-3 rounded-md border p-2.5 text-left text-sm',
+   475→                tripId === t.id ? 'border-amber-400 bg-amber-50' : 'border-zinc-200 hover:bg-zinc-50'
+   476→              )}
+   477→            >
+   478→              <span className="min-w-0">
+   479→                <span className="font-bold">#{t.code}</span> <span className="font-medium">{t.address}</span>
+   480→                <span className="ml-2 text-xs text-zinc-500">{t.passengerName}</span>
+   481→              </span>
+   482→              {t.scheduledAt && (
+   483→                <Badge variant="outline" className="shrink-0 border-amber-400 text-[10px] text-amber-700">
+   484→                  {formatTime(t.scheduledAt)}
+   485→                </Badge>
+   486→              )}
+   487→            </button>
+   488→          ))}
+   489→        </div>
+   490→
+   491→        <div className="grid grid-cols-5 gap-2 sm:grid-cols-8">
+   492→          {vehicles.map((v) => {
+   493→            const state = vehicleState(v, positions)
+   494→            const selected = vehicleNumber === v.number
+   495→            const disabled = state === 'busy' || state === 'no-driver'
+   496→            return (
+   497→              <button
+   498→                key={v.id}
+   499→                disabled={disabled}
+   500→                onClick={() => setVehicleNumber(v.number)}
+   501→                aria-label={`Móvil ${v.number}, ${STATE_STYLES[state].label.toLowerCase()}`}
+   502→                className={cn(
+   503→                  'rounded-lg border p-2 text-center transition-colors',
+   504→                  selected ? 'border-amber-500 bg-amber-400 text-zinc-950' : '',
+   505→                  !selected && disabled && 'cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400',
+   506→                  !selected && !disabled && state === 'free' && 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100',
+   507→                  !selected && !disabled && state === 'offline' && 'border-zinc-200 bg-white hover:bg-zinc-100'
+   508→                )}
+   509→              >
+   510→                <span className="block text-lg font-black">{v.number}</span>
+   511→                <span className={cn('block truncate text-[9px] font-semibold', selected ? 'text-zinc-900' : 'text-zinc-500')}>
+   512→                  {state === 'free' ? 'LIBRE' : state === 'busy' ? 'OCUPADO' : state === 'offline' ? 'OFF' : 'S/C'}
+   513→                </span>
+   514→              </button>
+   515→            )
+   516→          })}
+   517→        </div>
+   518→
+   519→        <Button
+   520→          className="h-12 w-full bg-amber-400 text-base font-black text-zinc-950 hover:bg-amber-300"
+   521→          disabled={!trip || vehicleNumber === null || assigning}
+   522→          onClick={() => trip && vehicleNumber !== null && onAssign(trip.id, vehicleNumber)}
+   523→        >
+   524→          {assigning ? (
+   525→            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+   526→          ) : vehicleNumber !== null && trip ? (
+   527→            `ASIGNAR PEDIDO #${trip.code} AL MÓVIL ${vehicleNumber}`
+   528→          ) : (
+   529→            'Elegí pedido y móvil'
+   530→          )}
+   531→        </Button>
+   532→      </DialogContent>
+   533→    </Dialog>
+   534→  )
+   535→}
+   536→
+   537→// ---------- Tab principal del operador ----------
+   538→
+   539→export function OperatorTab() {
+   540→  const queryClient = useQueryClient()
+   541→  const muted = useFleetStore((s) => s.muted)
+   542→  const positions = useFleetStore((s) => s.positions)
+   543→  const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
+   544→  const [assignDialog, setAssignDialog] = useState<{
+   545→    open: boolean
+   546→    tripId: string | null
+   547→  }>({ open: false, tripId: null })
+   548→
+   549→  const vehiclesQ = useQuery<VehiclesResponse>({
+   550→    queryKey: ['vehicles'],
+   551→    queryFn: async () => {
+   552→      const res = await fetch('/api/vehicles')
+   553→      if (!res.ok) throw new Error('Error al cargar la flota')
+   554→      return res.json()
+   555→    },
+   556→    refetchInterval: 15000,
+   557→  })
+   558→
+   559→  const tripsQ = useQuery<TripsResponse>({
+   560→    queryKey: ['trips', 'operator'],
+   561→    queryFn: async () => {
+   562→      const res = await fetch('/api/trips?status=PENDING,ASSIGNED,IN_PROGRESS&limit=300')
+   563→      if (!res.ok) throw new Error('Error al cargar los pedidos')
+   564→      return res.json()
+   565→    },
+   566→    refetchInterval: 15000,
+   567→  })
+   568→
+   569→  const pending = useMemo(() => {
+   570→    const list = tripsQ.data?.trips.filter((t) => t.status === 'PENDING') ?? []
+   571→    const now = Date.now()
+   572→    // urgentes primero: programados vencidos, luego programados, luego por número
+   573→    return [...list].sort((a, b) => {
+   574→      const aDue = isDue(a, now) ? 0 : 1
+   575→      const bDue = isDue(b, now) ? 0 : 1
+   576→      if (aDue !== bDue) return aDue - bDue
+   577→      if (a.scheduledAt && b.scheduledAt) {
+   578→        return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+   579→      }
+   580→      if (a.scheduledAt) return -1
+   581→      if (b.scheduledAt) return 1
+   582→      return b.code - a.code
+   583→    })
+   584→  }, [tripsQ.data])
+   585→
+   586→  const activeCount = useMemo(
+   587→    () => (tripsQ.data?.trips ?? []).filter((t) => t.status === 'ASSIGNED' || t.status === 'IN_PROGRESS').length,
+   588→    [tripsQ.data]
+   589→  )
+   590→  const scheduledCount = useMemo(
+   591→    () => pending.filter((t) => t.scheduledAt && new Date(t.scheduledAt).getTime() > Date.now()).length,
+   592→    [pending]
+   593→  )
+   594→  const onlineCount = useMemo(
+   595→    () => Object.values(positions).filter((p) => p.online).length,
+   596→    [positions]
+   597→  )
+   598→
+   599→  // Alerta sonora cuando un pedido programado llega a la hora
+   600→  const alertedRef = useRef<Set<string>>(new Set())
+   601→  useEffect(() => {
+   602→    const check = () => {
+   603→      const now = Date.now()
+   604→      for (const t of pending) {
+   605→        if (isDue(t, now) && !alertedRef.current.has(t.id)) {
+   606→          alertedRef.current.add(t.id)
+   607→          if (!muted) fleetAlarm.beepOnce()
+   608→          toast.warning(`Pedido programado #${t.code}: ¡llegó la hora!`, {
+   609→            description: `${t.address} - ${t.passengerName}. Asignalo con F8.`,
+   610→            duration: 12000,
+   611→          })
+   612→        }
+   613→      }
+   614→    }
+   615→    check()
+   616→    const timer = setInterval(check, 15000)
+   617→    return () => clearInterval(timer)
+   618→  }, [pending, muted])
+   619→
+   620→  // Atajo F8: asignar el pedido seleccionado o el primero pendiente
+   621→  useEffect(() => {
+   622→    const handler = (e: KeyboardEvent) => {
+   623→      if (e.key === 'F8') {
+   624→        e.preventDefault()
+   625→        if (pending.length === 0) {
+   626→          toast.info('No hay pedidos pendientes para asignar')
+   627→          return
+   628→        }
+   629→        setAssignDialog({ open: true, tripId: selectedTripId ?? pending[0].id })
+   630→      }
+   631→    }
+   632→    window.addEventListener('keydown', handler)
+   633→    return () => window.removeEventListener('keydown', handler)
+   634→  }, [pending, selectedTripId])
+   635→
+   636→  const invalidateFleet = () => {
+   637→    void queryClient.invalidateQueries({ queryKey: ['trips'] })
+   638→    void queryClient.invalidateQueries({ queryKey: ['vehicles'] })
+   639→  }
+   640→
+   641→  const assignMut = useMutation({
+   642→    mutationFn: async ({ tripId, vehicleNumber }: { tripId: string; vehicleNumber: number }) => {
+   643→      const res = await fetch(`/api/trips/${tripId}`, {
+   644→        method: 'PATCH',
+   645→        headers: { 'content-type': 'application/json' },
+   646→        body: JSON.stringify({ action: 'assign', vehicleNumber }),
+   647→      })
+   648→      const data = await res.json()
+   649→      if (!res.ok) throw new Error(data.error ?? 'No se pudo asignar el pedido')
+   650→      return data as TripResponse
+   651→    },
+   652→    onSuccess: (data) => {
+   653→      toast.success(`Pedido #${data.trip.code} asignado al móvil ${data.trip.vehicleNumber}`, {
+   654→        description: 'El chófer recibió la alarma en su panel.',
+   655→      })
+   656→      setAssignDialog({ open: false, tripId: null })
+   657→      setSelectedTripId(null)
+   658→      invalidateFleet()
+   659→    },
+   660→    onError: (err: Error) => toast.error(err.message),
+   661→  })
+   662→
+   663→  const cancelMut = useMutation({
+   664→    mutationFn: async (tripId: string) => {
+   665→      const res = await fetch(`/api/trips/${tripId}`, {
+   666→        method: 'PATCH',
+   667→        headers: { 'content-type': 'application/json' },
+   668→        body: JSON.stringify({ action: 'cancel' }),
+   669→      })
+   670→      const data = await res.json()
+   671→      if (!res.ok) throw new Error(data.error ?? 'No se pudo cancelar')
+   672→      return data as TripResponse
+   673→    },
+   674→    onSuccess: (data) => {
+   675→      toast.info(`Pedido #${data.trip.code} cancelado`)
+   676→      if (selectedTripId === data.trip.id) setSelectedTripId(null)
+   677→      invalidateFleet()
+   678→    },
+   679→    onError: (err: Error) => toast.error(err.message),
+   680→  })
+   681→
+   682→  const handleTileClick = (vehicleNumber: number, state: VehicleState) => {
+   683→    if (!selectedTripId) {
+   684→      const v = vehiclesQ.data?.vehicles.find((x) => x.number === vehicleNumber)
+   685→      toast.info(`Móvil ${vehicleNumber}: ${STATE_STYLES[state].label}`, {
+   686→        description: v?.driver ? `${v.driver.name} - ${v.model} (${v.plate})` : 'Sin chofer asignado',
+   687→      })
+   688→      return
+   689→    }
+   690→    if (state === 'busy') {
+   691→      toast.error(`El móvil ${vehicleNumber} está ocupado`)
+   692→      return
+   693→    }
+   694→    if (state === 'no-driver') {
+   695→      toast.error(`El móvil ${vehicleNumber} no tiene chofer`)
+   696→      return
+   697→    }
+   698→    assignMut.mutate({ tripId: selectedTripId, vehicleNumber })
+   699→  }
+   700→
+   701→  const vehicles = vehiclesQ.data?.vehicles ?? []
+   702→  const online = vehicles.filter((v) => positions[v.number]?.online).length
+   703→
+   704→  return (
+   705→    <div className="space-y-4">
+   706→      {/* Resumen */}
+   707→      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+   708→        {[
+   709→          { label: 'Pendientes', value: pending.length, className: pending.length > 0 ? 'text-amber-600' : '' },
+   710→          { label: 'Programados', value: scheduledCount, className: '' },
+   711→          { label: 'En carrera', value: activeCount, className: '' },
+   712→          { label: 'Conectados', value: `${online}/20`, className: '' },
+   713→        ].map((s) => (
+   714→          <Card key={s.label} className="py-3">
+   715→            <CardContent className="px-4">
+   716→              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{s.label}</p>
+   717→              <p className={cn('text-2xl font-black', s.className)}>{s.value}</p>
+   718→            </CardContent>
+   719→          </Card>
+   720→        ))}
+   721→      </div>
+   722→
+   723→      <div className="grid gap-4 xl:grid-cols-[400px_1fr]">
+   724→        {/* Columna izquierda: cargar pedido + pendientes */}
+   725→        <div className="space-y-4">
+   726→          <TripForm />
+   727→          <PendingTrips
+   728→            trips={pending}
+   729→            selectedTripId={selectedTripId}
+   730→            onSelect={(id) => setSelectedTripId((cur) => (cur === id ? null : id))}
+   731→            onAssign={(tripId) => setAssignDialog({ open: true, tripId })}
+   732→            onCancel={(t) => cancelMut.mutate(t.id)}
+   733→            cancelingId={cancelMut.isPending ? cancelMut.variables ?? null : null}
+   734→          />
+   735→        </div>
+   736→
+   737→        {/* Columna derecha: grilla de móviles */}
+   738→        <Card>
+   739→          <CardHeader className="pb-3">
+   740→            <CardTitle className="flex items-center justify-between text-base">
+   741→              <span className="flex items-center gap-2">
+   742→                <BellRing className="h-4 w-4 text-amber-500" aria-hidden />
+   743→                Grilla de móviles
+   744→              </span>
+   745→              <span className="text-xs font-normal text-zinc-500">
+   746→                {selectedTripId
+   747→                  ? 'Pedido seleccionado: tocá un móvil libre para asignarlo'
+   748→                  : 'Tocá un pedido pendiente para habilitar la asignación por grilla'}
+   749→              </span>
+   750→            </CardTitle>
+   751→          </CardHeader>
+   752→          <CardContent>
+   753→            {vehiclesQ.isLoading ? (
+   754→              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+   755→                {Array.from({ length: 20 }).map((_, i) => (
+   756→                  <div key={i} className="h-24 animate-pulse rounded-lg bg-zinc-200" />
+   757→                ))}
+   758→              </div>
+   759→            ) : (
+   760→              <VehicleGrid
+   761→                vehicles={vehicles}
+   762→                selectedTripId={selectedTripId}
+   763→                onTileClick={handleTileClick}
+   764→              />
+   765→            )}
+   766→            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 border-t pt-3 text-xs text-zinc-500">
+   767→              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Libre y conectado</span>
+   768→              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> En carrera</span>
+   769→              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-zinc-400" /> Desconectado</span>
+   770→              <span className="flex items-center gap-1.5"><X className="h-3 w-3" /> F8 = asignar</span>
+   771→            </div>
+   772→          </CardContent>
+   773→        </Card>
+   774→      </div>
+   775→
+   776→      <AssignDialog
+   777→        open={assignDialog.open}
+   778→        onOpenChange={(v) => setAssignDialog({ open: v, tripId: v ? assignDialog.tripId : null })}
+   779→        pendingTrips={pending}
+   780→        vehicles={vehicles}
+   781→        initialTripId={assignDialog.tripId}
+   782→        onAssign={(tripId, vehicleNumber) => assignMut.mutate({ tripId, vehicleNumber })}
+   783→        assigning={assignMut.isPending}
+   784→      />
+   785→    </div>
+   786→  )
+   787→}
+   788→

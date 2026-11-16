@@ -2,11 +2,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CarTaxiFront,
   ClipboardList,
   History,
+  LogOut,
   MapPinned,
   RadioTower,
   UserRound,
@@ -21,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { nowClock } from '@/lib/format'
 import { useFleetStore } from '@/lib/store'
 import { FleetProvider } from '@/components/fleet/fleet-provider'
+import { AuthGate, type AuthUser } from '@/components/fleet/auth-gate'
 import { AlarmOverlay } from '@/components/fleet/alarm-overlay'
 import { OperatorTab } from '@/components/fleet/operator-tab'
 import { MapTab } from '@/components/fleet/map-tab'
@@ -106,11 +108,23 @@ function LiveFooter() {
   )
 }
 
-function Shell() {
+function Shell({ user }: { user: AuthUser }) {
   const [activeTab, setActiveTab] = useState<TabId>('operator')
   const muted = useFleetStore((s) => s.muted)
   const toggleMuted = useFleetStore((s) => s.toggleMuted)
   const socketConnected = useFleetStore((s) => s.socketConnected)
+  const queryClient = useQueryClient()
+
+  async function handleLogout() {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // igualmente limpiamos el estado local
+    }
+    queryClient.setQueryData(['me'], null)
+    queryClient.removeQueries({ queryKey: ['trips'] })
+    queryClient.removeQueries({ queryKey: ['vehicles'] })
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-100 text-zinc-950">
@@ -133,6 +147,22 @@ function Shell() {
 
             <div className="flex items-center gap-2 md:gap-4">
               <Clock />
+              <div className="hidden h-8 items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 pl-1.5 pr-3 sm:flex" aria-label="Usuario conectado">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[10px] font-black text-zinc-950" aria-hidden>
+                  {user.name.charAt(0).toUpperCase()}
+                </span>
+                <span className="text-xs font-semibold text-zinc-300">{user.name}</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-400/80">{user.role === 'ADMIN' ? 'Admin' : 'Operador'}</span>
+              </div>
+              <button
+                onClick={handleLogout}
+                aria-label="Cerrar sesión"
+                title="Cerrar sesión"
+                className="flex h-8 items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900 px-3 text-xs font-semibold text-zinc-300 transition-colors hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300"
+              >
+                <LogOut className="h-4 w-4" aria-hidden />
+                <span className="hidden sm:inline">Salir</span>
+              </button>
               <button
                 onClick={toggleMuted}
                 aria-label={muted ? 'Activar sonidos' : 'Silenciar sonidos'}
@@ -209,7 +239,7 @@ function Shell() {
 export default function Home() {
   return (
     <FleetProvider>
-      <Shell />
+      <AuthGate>{(user) => <Shell user={user} />}</AuthGate>
     </FleetProvider>
   )
 }
