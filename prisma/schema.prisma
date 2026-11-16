@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Chófer de la flota
+model Driver {
+  id        String    @id @default(cuid())
+  name      String
+  phone     String
+  license   String
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  vehicle   Vehicle?
+  trips     Trip[]
+}
+
+// Móvil (auto) con numeración 1..N
+model Vehicle {
+  id        String   @id @default(cuid())
+  number    Int      @unique
+  plate     String
+  model     String
+  color     String
+  createdAt DateTime @default(now())
+  driver    Driver?  @relation(fields: [driverId], references: [id])
+  driverId  String?  @unique
+  trips     Trip[]
+}
+
+// Pedido / viaje
+model Trip {
+  id             String    @id @default(cuid())
+  code           Int       @unique // número de pedido secuencial, lo asigna la app
+  address        String
+  zone           String?
+  passengerName  String
+  passengerPhone String?
+  fare           Float     @default(0)
+  notes          String?
+  scheduledAt    DateTime?
+  status         String    @default("PENDING") // PENDING | ASSIGNED | IN_PROGRESS | COMPLETED | CANCELLED
+  vehicleId      String?
+  vehicle        Vehicle?  @relation(fields: [vehicleId], references: [id])
+  driverId       String?
+  driver         Driver?   @relation(fields: [driverId], references: [id])
+  acknowledgedAt DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  paymentMethod  String?   // CASH | CARD | TRANSFER
+  createdAt      DateTime  @default(now())
+  payment        Payment?
+}
+
+// Cobro asociado a un viaje
+model Payment {
+  id        String   @id @default(cuid())
+  tripId    String   @unique
+  trip      Trip     @relation(fields: [tripId], references: [id])
+  amount    Float
+  method    String   // CASH | CARD | TRANSFER
+  status    String   @default("PAID")
+  createdAt DateTime @default(now())
+}
