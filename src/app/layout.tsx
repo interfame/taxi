@@ -18,9 +18,8 @@ export const metadata: Metadata = {
   description: "Plataforma para radio taxis: carga de pedidos por la operadora, grilla de móviles, asignación con alarma al chófer, GPS en tiempo real, historial y pagos.",
   keywords: ["RUSHTAXI", "flota", "taxis", "despacho", "GPS", "móviles"],
   authors: [{ name: "RUSHTAXI" }],
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
-  },
+  // El favicon (favicon.ico, icon.svg, icon.png y apple-icon.png) se sirve
+  // automáticamente desde src/app mediante las convenciones de archivos de Next.
   openGraph: {
     title: "RUSHTAXI - Sistema de gestión de flota",
     description: "Despacho de pedidos, grilla de móviles, GPS en vivo y pagos",

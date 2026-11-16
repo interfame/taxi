@@ -35,6 +35,7 @@ model Driver {
   phone     String
   license   String
   active    Boolean   @default(true)
+  online    Boolean   @default(false) // presencia: móvil conectado (modo HTTP sin WebSocket)
   createdAt DateTime  @default(now())
   vehicle   Vehicle?
   trips     Trip[]

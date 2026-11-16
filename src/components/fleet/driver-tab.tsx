@@ -31,7 +31,7 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { formatARSPlain, formatTime } from '@/lib/format'
 import { useFleetStore } from '@/lib/store'
-import { getFleetSocket } from '@/lib/socket'
+import { emitFleet } from '@/lib/socket'
 import type { DriverWithStatsDTO, PaymentMethod, TripDTO } from '@/lib/types'
 
 type DriversResponse = { drivers: DriverWithStatsDTO[] }
@@ -96,13 +96,20 @@ export function DriverTab() {
 
   const connectMut = useMutation({
     mutationFn: async () => {
-      // la presencia va por socket; el estado local se maneja en el cliente
-      await new Promise((r) => setTimeout(r, 150))
+      // presencia persistida en la base (funciona tambien sin WebSocket, modo HTTP)
+      try {
+        await fetch(`/api/drivers/${selectedDriver.id}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ online: true }),
+        })
+      } catch {
+        // best-effort: la grilla del modo HTTP refresca sola
+      }
     },
     onMutate: () => {
       if (!selectedDriver) return
-      const socket = getFleetSocket()
-      socket.emit('driver:online', {
+      emitFleet('driver:online', {
         vehicleNumber: selectedDriver.vehicleNumber,
         driverName: selectedDriver.name,
       })
@@ -115,8 +122,13 @@ export function DriverTab() {
 
   const disconnect = () => {
     if (!selectedDriver) return
-    const socket = getFleetSocket()
-    socket.emit('driver:offline', { vehicleNumber: selectedDriver.vehicleNumber })
+    emitFleet('driver:offline', { vehicleNumber: selectedDriver.vehicleNumber })
+    // presencia en la base para el modo HTTP
+    void fetch(`/api/drivers/${selectedDriver.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ online: false }),
+    }).catch(() => undefined)
     setDriverOnline(false)
     toast.info(`Móvil ${selectedDriver.vehicleNumber} desconectado`)
     if (gpsWatchId !== null) {
@@ -143,7 +155,7 @@ export function DriverTab() {
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         if (!selectedDriver) return
-        getFleetSocket().emit('gps:update', {
+        emitFleet('gps:update', {
           vehicleNumber: selectedDriver.vehicleNumber,
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
@@ -162,7 +174,7 @@ export function DriverTab() {
 
   const ackMut = useMutation({
     mutationFn: async (trip: TripDTO) => {
-      getFleetSocket().emit('trip:ack', { tripId: trip.id, vehicleNumber: trip.vehicleNumber })
+      emitFleet('trip:ack', { tripId: trip.id, vehicleNumber: trip.vehicleNumber })
       const res = await fetch(`/api/trips/${trip.id}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },

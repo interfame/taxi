@@ -14,11 +14,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ error: 'El chofer no existe' }, { status: 404 })
     }
 
-    const data: { name?: string; phone?: string; license?: string; active?: boolean } = {}
+    const data: { name?: string; phone?: string; license?: string; active?: boolean; online?: boolean } = {}
     if (body.name !== undefined) data.name = String(body.name).trim()
     if (body.phone !== undefined) data.phone = String(body.phone).trim()
     if (body.license !== undefined) data.license = String(body.license).trim()
     if (body.active !== undefined) data.active = Boolean(body.active)
+    if (body.online !== undefined) data.online = Boolean(body.online)
 
     let vehicleNumber: number | null | undefined = undefined
     if (body.vehicleNumber !== undefined) {
