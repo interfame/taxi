@@ -12,8 +12,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: false,
   // Incluir el motor de Prisma y la base SQLite demo dentro de las funciones
   // serverless, para que /api/* pueda leer la base incluida en el bundle.
+  // Se usan varios patrones de ruta para asegurar el match en todos los casos.
   outputFileTracingIncludes: {
     "/**": ["./db/custom.db", "./node_modules/.prisma/client/**"],
+    "/**/*": ["./db/custom.db", "./node_modules/.prisma/client/**"],
+    "/api/*": ["./db/custom.db", "./node_modules/.prisma/client/**"],
+    "/": ["./db/custom.db", "./node_modules/.prisma/client/**"],
   },
 };
 
